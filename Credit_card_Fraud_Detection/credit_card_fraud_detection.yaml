@@ -1,0 +1,409 @@
+# PIPELINE DEFINITION
+# Name: credit-card-fraud-detection-classifier-kubeflow-demo-pipeline
+# Description: A sample pipeline that performs Credit Card Fraud Detection classifier task
+components:
+  comp-get-metrics:
+    executorLabel: exec-get-metrics
+    inputDefinitions:
+      artifacts:
+        test_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        trained_model:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        y_pred_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        target:
+          parameterType: STRING
+  comp-predict-on-test-data:
+    executorLabel: exec-predict-on-test-data
+    inputDefinitions:
+      artifacts:
+        test_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        trained_model:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        target:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        y_pred_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-prepare-data:
+    executorLabel: exec-prepare-data
+    inputDefinitions:
+      parameters:
+        train1_csv_url:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-train-test-split:
+    executorLabel: exec-train-test-split
+    inputDefinitions:
+      artifacts:
+        cc_data_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        target:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        test_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        train_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-training-basic-classifier:
+    executorLabel: exec-training-basic-classifier
+    inputDefinitions:
+      artifacts:
+        train_csv:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        target_column:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        trained_model:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-get-metrics:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - get_metrics
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.4'\
+          \ 'scikit-learn' 'numpy' 'fsspec==2024.3.1' 'gcsfs' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef get_metrics(trained_model: InputPath(), \n                  \
+          \       test_csv: InputPath(),\n                         y_pred_csv: InputPath(),\
+          \ \n                         target:str) -> None:\n    import pandas as\
+          \ pd\n    import numpy as np\n    from sklearn.metrics import accuracy_score,precision_score,recall_score,log_loss\n\
+          \    from sklearn import metrics\n    import pickle\n    from sklearn.preprocessing\
+          \ import LabelEncoder\n    from sklearn.impute import SimpleImputer\n\n\
+          \    print(\"---- Inside get_metrics component ----\")\n\n    with open(test_csv)\
+          \ as f:\n        test_df = pd.read_csv(f)\n    df = test_df.apply(LabelEncoder().fit_transform)\n\
+          \n    with open(trained_model,'rb') as f:\n        logistic_reg_model =\
+          \ pickle.load(f)\n\n    with open(y_pred_csv,'rb') as f:\n        y_pred_df\
+          \ = pd.read_csv(f)\n\n    y_pred = y_pred_df.to_numpy()\n\n    y_test =\
+          \ df[target]\n\n    acc = accuracy_score(y_test, y_pred)\n    prec = precision_score(y_test,\
+          \ y_pred,average='micro')\n    recall = recall_score(y_test, y_pred,average='micro')\
+          \ \n\n    print(metrics.classification_report(y_test, y_pred))\n\n    print(\"\
+          \\n Model Metrics:\", {'accuracy': round(acc, 2), 'precision': round(prec,\
+          \ 2), 'recall': round(recall, 2)})\n\n"
+        image: python:3.12
+    exec-predict-on-test-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - predict_on_test_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.4'\
+          \ 'scikit-learn' 'numpy' 'fsspec==2024.3.1' 'gcsfs' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef predict_on_test_data(trained_model: InputPath(), \n         \
+          \                test_csv: InputPath(),\n                         y_pred_csv:\
+          \ OutputPath(), \n                         target:str) -> None:\n    import\
+          \ pandas as pd\n    import numpy as np\n    import pickle\n    from sklearn.preprocessing\
+          \ import LabelEncoder\n    from sklearn.impute import SimpleImputer\n\n\
+          \    print(\"---- Inside predict_on_test_data component ----\")\n\n    with\
+          \ open(test_csv,'rb') as f:\n        test_df = pd.read_csv(f)\n\n    with\
+          \ open(trained_model,'rb') as f:\n        logistic_reg_model = pickle.load(f)\n\
+          \n    df = test_df.apply(LabelEncoder().fit_transform)\n\n    features =\
+          \ df.drop(target, axis= 1)\n    input_median = SimpleImputer(missing_values=np.nan,\
+          \ strategy ='median')\n\n    xtest = input_median.fit_transform(features)\n\
+          \    ytest = df[target]\n\n    y_pred = logistic_reg_model.predict(xtest)\n\
+          \    y_pred_df = pd.DataFrame(y_pred)\n    print(y_pred)\n\n    with open(y_pred_csv,\
+          \ 'w') as f:\n        y_pred_df.to_csv(f, index=False)\n\n"
+        image: python:3.12
+    exec-prepare-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - prepare_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.4'\
+          \ 'fsspec==2024.3.1' 'gcsfs' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef prepare_data(output_csv: OutputPath(), \n                 train1_csv_url:\
+          \ str \n                 ) -> None:\n\n    import pandas as pd\n    print(\"\
+          ---- Inside prepare_data component ----\")\n    # Load dataset\n    train1\
+          \ = pd.read_csv(train1_csv_url)\n\n    with open(output_csv, 'w') as f:\n\
+          \        train1.to_csv(f, index=False)\n    # print(\"\\n ---- data csv\
+          \ is saved to PV location /data/final_df.csv ----\")\n\n"
+        image: python:3.12
+    exec-train-test-split:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_test_split
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.4'\
+          \ 'scikit-learn' 'numpy' 'fsspec==2024.3.1' 'gcsfs' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_test_split(cc_data_csv: InputPath(), \n               \
+          \      train_csv: OutputPath(), \n                     test_csv: OutputPath(),\
+          \ \n                     target: str) -> None:\n    import pandas as pd\n\
+          \    import numpy as np\n    from sklearn.model_selection import train_test_split\n\
+          \    print(\"---- Inside train_test_split component ----\")\n    with open(cc_data_csv)\
+          \ as f:\n        final_data = pd.read_csv(f)\n\n    train_df, test_df =\
+          \ train_test_split(final_data, test_size=0.3,stratify = final_data[target],\
+          \ random_state=47)\n\n    with open(train_csv, 'w') as f:\n        train_df.to_csv(f,\
+          \ index=False)\n\n    with open(test_csv, 'w') as f:\n        test_df.to_csv(f,\
+          \ index=False)\n\n"
+        image: python:3.12
+    exec-training-basic-classifier:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - training_basic_classifier
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.4'\
+          \ 'scikit-learn' 'numpy' 'fsspec==2024.3.1' 'gcsfs' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef training_basic_classifier(train_csv: InputPath(), \n        \
+          \                      trained_model: OutputPath(), \n                 \
+          \             target_column: str) -> None:\n    import pandas as pd\n  \
+          \  import numpy as np\n    from sklearn.linear_model import LogisticRegression\n\
+          \    from sklearn.preprocessing import LabelEncoder\n    from sklearn.impute\
+          \ import SimpleImputer\n\n\n    print(\"---- Inside training_basic_classifier\
+          \ component ----\")\n\n    with open(train_csv) as f:\n        df = pd.read_csv(f)\n\
+          \    target = target_column\n    df = df.apply(LabelEncoder().fit_transform)\n\
+          \n    features = df.drop(target, axis= 1)\n    ytrain = df[target]\n\n \
+          \   input_median = SimpleImputer(missing_values=np.nan, strategy ='median')\n\
+          \    xtrain = input_median.fit_transform(features)\n\n    classifier = LogisticRegression(max_iter=500)\n\
+          \    classifier.fit(xtrain,ytrain)\n    import pickle\n    with open(trained_model,\
+          \ 'wb') as f:\n        pickle.dump(classifier, f)\n\n    print(\"\\n logistic\
+          \ regression classifier is trained on iris data and saved to PV location\
+          \ /data/model.pkl ----\")\n\n"
+        image: python:3.12
+pipelineInfo:
+  description: A sample pipeline that performs Credit Card Fraud Detection classifier
+    task
+  name: credit-card-fraud-detection-classifier-kubeflow-demo-pipeline
+root:
+  dag:
+    tasks:
+      get-metrics:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-get-metrics
+        dependentTasks:
+        - predict-on-test-data
+        - train-test-split
+        - training-basic-classifier
+        inputs:
+          artifacts:
+            test_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_csv
+                producerTask: train-test-split
+            trained_model:
+              taskOutputArtifact:
+                outputArtifactKey: trained_model
+                producerTask: training-basic-classifier
+            y_pred_csv:
+              taskOutputArtifact:
+                outputArtifactKey: y_pred_csv
+                producerTask: predict-on-test-data
+          parameters:
+            target:
+              runtimeValue:
+                constant: isFraud
+        taskInfo:
+          name: get-metrics
+      predict-on-test-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-predict-on-test-data
+        dependentTasks:
+        - train-test-split
+        - training-basic-classifier
+        inputs:
+          artifacts:
+            test_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_csv
+                producerTask: train-test-split
+            trained_model:
+              taskOutputArtifact:
+                outputArtifactKey: trained_model
+                producerTask: training-basic-classifier
+          parameters:
+            target:
+              runtimeValue:
+                constant: isFraud
+        taskInfo:
+          name: predict-on-test-data
+      prepare-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-prepare-data
+        inputs:
+          parameters:
+            train1_csv_url:
+              runtimeValue:
+                constant: gs://credit-card-bucket-v1/credit-card-fraud-detection-data.csv
+        taskInfo:
+          name: prepare-data
+      train-test-split:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-test-split
+        dependentTasks:
+        - prepare-data
+        inputs:
+          artifacts:
+            cc_data_csv:
+              taskOutputArtifact:
+                outputArtifactKey: output_csv
+                producerTask: prepare-data
+          parameters:
+            target:
+              runtimeValue:
+                constant: isFraud
+        taskInfo:
+          name: train-test-split
+      training-basic-classifier:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-training-basic-classifier
+        dependentTasks:
+        - train-test-split
+        inputs:
+          artifacts:
+            train_csv:
+              taskOutputArtifact:
+                outputArtifactKey: train_csv
+                producerTask: train-test-split
+          parameters:
+            target_column:
+              runtimeValue:
+                constant: isFraud
+        taskInfo:
+          name: training-basic-classifier
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0
