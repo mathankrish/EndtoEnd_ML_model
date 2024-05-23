@@ -7,4 +7,4 @@ RUN pip install -r requirements.txt
 
 COPY *.py .
 
-ENTRYPOINT ["python", "credit_card_fraud_detection_(1).py"]
+ENTRYPOINT ["python", "credit_risk_analysis_final.py"]
